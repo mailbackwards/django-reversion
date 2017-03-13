@@ -250,6 +250,11 @@ def _save_revision(versions, user=None, comment="", meta=(), date_created=None, 
     # Save the revision.
     revision.save(using=using)
     # Save version models.
+    # XXX magic numbers because base content needs to be saved before children
+    BASE_CONTENT_TYPE_ID = 18
+    versions = sorted(versions, key=lambda v: (
+        0 if v.content_type_id == BASE_CONTENT_TYPE_ID else v.content_type_id
+    ))
     for version in versions:
         version.revision = revision
         version.save(using=using)
