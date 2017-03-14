@@ -200,7 +200,10 @@ class VersionAdmin(admin.ModelAdmin):
             return redirect("{}:{}_{}_changelist".format(self.admin_site.name, opts.app_label, opts.model_name))
         except _RollBackRevisionView as ex:
             return ex.response
-        return response
+        # It was reverted to a previous version. Return to the change view.
+        opts = self.model._meta
+        return redirect("{}:{}_{}_change".format(self.admin_site.name, opts.app_label, opts.model_name),
+                        int(version.object_id))
 
     def recover_view(self, request, version_id, extra_context=None):
         """Displays a form that can recover a deleted model."""
