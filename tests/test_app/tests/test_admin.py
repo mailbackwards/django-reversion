@@ -8,7 +8,7 @@ from django.shortcuts import resolve_url
 import reversion
 from reversion.admin import VersionAdmin
 from reversion.models import Version
-from test_app.models import TestModel, TestModelParent, TestModelInline, TestModelGenericInline
+from test_app.models import TestModel, TestModelParent, TestModelInline, TestModelGenericInline, TestModelEscapePK
 from test_app.tests.base import TestBase, LoginMixin
 
 
@@ -187,6 +187,42 @@ class AdminHistoryViewTest(LoginMixin, AdminMixin, TestBase):
             obj.pk,
             Version.objects.get_for_model(TestModelParent).get().pk,
         ))
+
+
+class AdminQuotingTest(LoginMixin, AdminMixin, TestBase):
+
+    def setUp(self):
+        super(AdminQuotingTest, self).setUp()
+        admin.site.register(TestModelEscapePK, VersionAdmin)
+        self.reloadUrls()
+
+    def tearDown(self):
+        super(AdminQuotingTest, self).tearDown()
+        admin.site.unregister(TestModelEscapePK)
+        self.reloadUrls()
+
+    def testHistoryWithQuotedPrimaryKey(self):
+        pk = 'ABC_123'
+        quoted_pk = admin.utils.quote(pk)
+        # test is invalid if quoting does not change anything
+        assert quoted_pk != pk
+
+        with reversion.create_revision():
+            obj = TestModelEscapePK.objects.create(name=pk)
+
+        revision_url = resolve_url(
+            "admin:test_app_testmodelescapepk_revision",
+            quoted_pk,
+            Version.objects.get_for_object(obj).get().pk,
+        )
+        history_url = resolve_url(
+            "admin:test_app_testmodelescapepk_history",
+            quoted_pk
+        )
+        response = self.client.get(history_url)
+        self.assertContains(response, revision_url)
+        response = self.client.get(revision_url)
+        self.assertContains(response, 'value="{}"'.format(pk))
 
 
 class TestModelInlineAdmin(admin.TabularInline):

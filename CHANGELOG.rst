@@ -3,10 +3,54 @@
 django-reversion changelog
 ==========================
 
-Development
------------
+2.0.13 - 23/01/2017
+-------------------
+
+- Improve performance of ``get_deleted()`` for Oracle (@passuf).
+- Minor tweaks (@etianen, @michael-k).
+
+
+2.0.12 - 05/12/2017
+-------------------
+
+- Fixed MySQL error in ``get_deleted()``.
+
+
+2.0.11 - 27/11/2017
+-------------------
+
+- Dramatically improved performance of ``get_deleted()`` over large datasets (@alexey-v-paramonov, @etianen).
+- Ukranian translation (@illia-v).
+- Bugfixes (@achidlow, @claudep, @etianen).
+
+
+2.0.10 - 18/08/2017
+-------------------
+
+- Bugfix: Handling case of `None` user in request (@pawelad).
+- Documentation corrections (@danielquinn).
+- Bugfix: "invalid literal for int() with base 10: 'None'" for unversioned admin inline relations.
+
+  If, after updating, you still experience this issue, run the following in a Django shell:
+
+  .. code::
+
+      from reversion.models import Version
+      Version.objects.filter(object_id="None").delete()
+
+  **Important:** Ensure that none of your versioned models contain a string primary key where `"None"` is a valid value
+  before running this snippet!
+
+
+2.0.9 - 19/06/2017
+------------------
 
 - Bugfix: Deleted inline admin instances no longer added to revision.
+- Bugfix: M2M relations correctly added to revision (@etianen, @claudep).
+- Improved performance of 0003 migration (@mkurek).
+- Documentation improvements (@orlra, @guettli, @meilinger).
+- Django 1.11 support (@claudep).
+- Added ``atomic=True`` parameter to ``create_revision`` (Ernesto Ferro).
 
 
 2.0.8 - 28/11/2016
@@ -168,6 +212,8 @@ Low-level API
 * **Breaking:** ``reversion.get_for_object()`` has been moved to ``Version.objects.get_for_object()`` (@etianen).
 
 * **Breaking:** ``reversion.get_deleted()`` has been moved to ``Version.objects.get_deleted()`` (@etianen).
+
+* **Breaking:** ``Version.object_version`` has been renamed to ``Version._object_version`` (@etianen).
 
 * **Breaking:** Refactored multi-db support (@etianen).
 

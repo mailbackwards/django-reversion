@@ -170,6 +170,9 @@ def _follow_relations_recursive(obj):
 
 def _add_to_revision(obj, using, model_db, explicit):
     from reversion.models import Version
+    # Exit early if the object is not fully-formed.
+    if obj.pk is None:
+        return
     version_options = _get_options(obj.__class__)
     content_type = _get_content_type(obj.__class__, using)
     object_id = force_text(obj.pk)
@@ -333,7 +336,7 @@ def _post_save_receiver(sender, instance, using, **kwargs):
 
 def _m2m_changed_receiver(instance, using, action, model, reverse, **kwargs):
     if action.startswith("post_") and not reverse:
-        if is_registered(model) and is_active() and not is_manage_manually():
+        if is_registered(instance) and is_active() and not is_manage_manually():
             add_to_revision(instance, model_db=using)
 
 

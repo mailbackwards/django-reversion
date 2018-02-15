@@ -30,6 +30,13 @@ from reversion.revisions import is_active, register, is_registered, set_comment,
 from reversion.views import _RollBackRevisionView
 
 
+def private_fields(meta):
+    try:
+        return meta.private_fields
+    except AttributeError:  # Django < 1.10 pragma: no cover
+        return meta.virtual_fields
+
+
 class VersionAdmin(admin.ModelAdmin):
 
     object_history_template = "reversion/object_history.html"
@@ -112,7 +119,7 @@ class VersionAdmin(admin.ModelAdmin):
             inline_model = inline.model
             ct_field = inline.ct_field
             fk_name = inline.ct_fk_field
-            for field in self.model._meta.virtual_fields:
+            for field in private_fields(self.model._meta):
                 if (
                     isinstance(field, GenericRelation) and
                     remote_model(field) == inline_model and
@@ -184,7 +191,7 @@ class VersionAdmin(admin.ModelAdmin):
                 version.revision.revert(delete=True)
                 # Run the normal changeform view.
                 with self.create_revision(request):
-                    response = self.changeform_view(request, version.object_id, request.path, extra_context)
+                    response = self.changeform_view(request, quote(version.object_id), request.path, extra_context)
                     # Decide on whether the keep the changes.
                     if request.method == "POST" and response.status_code == 302:
                         set_comment(_("Reverted to previous version, saved on %(datetime)s") % {
@@ -280,7 +287,6 @@ class VersionAdmin(admin.ModelAdmin):
         # Check if user has change permissions for model
         if not self.has_change_permission(request):
             raise PermissionDenied
-        object_id = unquote(object_id)  # Underscores in primary key get quoted to "_5F"
         opts = self.model._meta
         action_list = [
             {
@@ -293,7 +299,7 @@ class VersionAdmin(admin.ModelAdmin):
             for version
             in self._reversion_order_version_queryset(Version.objects.get_for_object_reference(
                 self.model,
-                object_id,
+                unquote(object_id),  # Underscores in primary key get quoted to "_5F"
             ).select_related("revision__user"))
         ]
         # Compile the context.

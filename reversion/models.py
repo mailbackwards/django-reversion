@@ -11,6 +11,8 @@ from django.core import serializers
 from django.core.serializers.base import DeserializationError
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, IntegrityError, transaction, router, connections
+from django.db.models.deletion import Collector
+from django.db.models.expressions import RawSQL
 from django.utils.functional import cached_property
 from django.utils.translation import ugettext_lazy as _, ugettext
 from django.utils.encoding import force_text, python_2_unicode_compatible
@@ -85,9 +87,9 @@ class Revision(models.Model):
                         for obj in old_revision
                     )
                     # Delete objects that are no longer in the current revision.
-                    for item in current_revision:
-                        if item not in old_revision:
-                            item.delete(using=version.db)
+                    collector = Collector(using=version_db)
+                    collector.collect([item for item in current_revision if item not in old_revision])
+                    collector.delete()
                 # Attempt to revert all revisions.
                 _safe_revert(versions)
 
@@ -97,6 +99,12 @@ class Revision(models.Model):
     class Meta:
         app_label = "reversion"
         ordering = ("-pk",)
+
+
+class SubquerySQL(RawSQL):
+
+    def as_sql(self, compiler, connection):
+        return self.sql, self.params
 
 
 class VersionQuerySet(models.QuerySet):
@@ -118,16 +126,46 @@ class VersionQuerySet(models.QuerySet):
         return self.get_for_object_reference(obj.__class__, obj.pk, model_db=model_db)
 
     def get_deleted(self, model, model_db=None):
-        return self.get_for_model(model, model_db=model_db).filter(
-            pk__in=_safe_subquery(
-                "exclude",
-                self.get_for_model(model, model_db=model_db),
-                "object_id",
-                model._default_manager.using(model_db),
-                model._meta.pk.name,
+        # Try to do a faster JOIN.
+        model_db = model_db or router.db_for_write(model)
+        connection = connections[self.db]
+        if self.db == model_db and connection.vendor in ("sqlite", "postgresql", "oracle"):
+            content_type = _get_content_type(model, self.db)
+            subquery = SubquerySQL(
+                """
+                SELECT MAX(V.{id})
+                FROM {version} V
+                LEFT JOIN {model} ON V.{object_id} = CAST({model}.{model_id} as {str})
+                WHERE
+                    V.{db} = %s AND
+                    V.{content_type_id} = %s AND
+                    {model}.{model_id} IS NULL
+                GROUP BY V.{object_id}
+                """.format(
+                    id=connection.ops.quote_name("id"),
+                    version=connection.ops.quote_name(Version._meta.db_table),
+                    model=connection.ops.quote_name(model._meta.db_table),
+                    model_id=connection.ops.quote_name(model._meta.pk.db_column or model._meta.pk.attname),
+                    object_id=connection.ops.quote_name("object_id"),
+                    str=Version._meta.get_field("object_id").db_type(connection),
+                    db=connection.ops.quote_name("db"),
+                    content_type_id=connection.ops.quote_name("content_type_id"),
+                ),
+                (model_db, content_type.id),
+                output_field=Version._meta.pk,
+            )
+        else:
+            # We have to use a slow subquery.
+            subquery = self.get_for_model(model, model_db=model_db).exclude(
+                object_id__in=list(
+                    model._default_manager.using(model_db).values_list("pk", flat=True).order_by().iterator()
+                ),
             ).values_list("object_id").annotate(
                 latest_pk=models.Max("pk")
-            ).order_by().values_list("latest_pk", flat=True),
+            ).order_by().values_list("latest_pk", flat=True)
+        # Perform the subquery.
+        return self.filter(
+            pk__in=subquery,
         )
 
     def get_unique(self):
